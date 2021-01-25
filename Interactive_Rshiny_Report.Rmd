@@ -1,5 +1,7 @@
 ---
-title: "Interactive_Sample_Swap_Report"
+title: "Sample Swap Report (Prototype)"
+author: "Prisni Rath, prisni.rath@oicr.on.ca"
+date: "19 January 2021"
 output: html_document
 runtime: shiny
 ---
@@ -27,24 +29,11 @@ inputPanel(
               choices = c("TGL20", "OCT", "PCSI", "DCIS"), selected = "TGL20"),
   # load run names based on project selected
   selectInput("run", label = "Run name:",
-              choices = c("select run id"), selected = "run_id"),
+              choices = c("select run id"), selected = "run_id", width = 2000),
   # output folder to write files
   textInput("donors", label = "Comma-separated values for Donor IDs of interest",
-              value = ""),
-  # textInput(inputId, label, value = "", width = NULL, placeholder = NULL)
-  # path to find jaccard matrix
-  
-  sliderInput("threshold_up", label = "Similarity threshold",
-              min = 0.0, max = 1.0, value = 0.9, step = 0.01),
-  
-  sliderInput("threshold_down", label = "Dissimilarity threshold",
-              min = 0.0, max = 1.0, value = 0.65, step = 0.01),
-  
-  # input to select donor ids X, Y
-  # button to select show annotations
-  checkboxInput("showAnnotations", label= " Show Sample IDs", value = FALSE, width = NULL)
-  # button to only display selective buttong
-  # buttons to display swaps
+              value = "", width = 1000),
+  checkboxInput("projectView", label= "Project Level View", value = FALSE, width = NULL)
 )
 
 
@@ -96,20 +85,48 @@ donorsInt <- reactive({
 # add beautiful params to this UI
 # text formatting
 renderUI({
-    HTML(paste(paste0("Report generated for: ", input$project), 
-               paste0("Run id: ", input$run),
+  runInfo <- input$run
+  if(input$projectView){
+    runInfo=NA
+  }
+    HTML(paste(paste0("<strong>Report generated for: ", input$project), 
+               paste0("Run id: ", runInfo),
                sep ="<br/>"))
   })
 ```
+```{r,echo=F, warning=F}
+inputPanel(
+  checkboxInput("showAnnotations", label= "Show Sample IDs", value = FALSE, width = NULL),
+  checkboxInput("clusterOpt", label= "Cluster heatmap", value = FALSE, width = NULL),
+  checkboxInput("showTreeCuts", label= "Show tree cuts", value = FALSE, width = NULL), # use checkboxinputgroups
+  # checkboxGroupInput("cluteringTest", label = "Cluster heatmap", choiceNames = c("show dendrograms", "show treecuts"), choiceValues = c(FALSE, FALSE)),
+  checkboxInput("displaySampleInfo", label= "Show library info table", value = FALSE, width = NULL),
+  checkboxInput("showLegend", label= "Show legend", value = FALSE, width = NULL),
+  checkboxInput("showNewColors", label = "Assign new colors for donor IDs", value = FALSE, width = NULL),
+  # checkboxInput("dropUnusedLevels", label= "Drop unused levels", value = TRUE, width = NULL),
+  #treeHeight
+  textInput("treeHeight", label = "Height of dendrogram", value = "50"),
+  textInput("scalePlotHeight", label = "Height of the figure", value = "500"),
+  textInput("scalePlotWidth", label = "Width of the figure", value = "700")
+)
+
+
+```
+
+### Sample fingerprinting report
+
 ```{r, echo=F, warning=F}
 laneData <- reactive({
   jaccard_matrix_file <- paste0("data/", input$project, "/", input$project, "_EX_", input$run, "_jaccard.matrix.csv")
+  if (input$projectView){
+    jaccard_matrix_file <- paste0("data/", input$project, "/", input$project, "_", "_jaccard.matrix.csv")
+  }
+  
   jaccard_matrix <- jaccard_matrix_file
   laneData <- read.delim(file=jaccard_matrix, header = T)
   return (laneData)
-  # jmDataSet <- loadRelevantJMData(jaccard_matrix_file)
-  # return(jmDataSet)
 })
+
 
 sample_miso_donor_map <- reactive({
   sample_miso_donor_map <- getSampleRunData(laneData())
@@ -128,10 +145,6 @@ formatted.SampleMap <- reactive({
   smp$pseudoID <- maskNames
   # sort by donor
   smp <- smp[order(smp$effective_donorID),]
-  # make this list dynamic donor list
-  # if (!is.null(donorsInt())){
-  #   smp <- smp[smp$effective_donorID %in% donorsInt(),]
-  # }
   return (smp)
 })
 
@@ -167,40 +180,24 @@ breaksList <- reactive({
   ld <- formatted.laneData()
   breaksList <- seq(min(as.matrix(ld)),
                   max(as.matrix(ld)),
-                  by = 0.07)
+                  by = 0.05)
   return(breaksList)
-})
-
-# draw heatmap
-hm <- reactive({
-  ld <- formatted.laneData()
-  smp <- sample_miso_donor_map()
-  ad <- data.frame(smp$effective_donorID)
-  names(ad) <- "Donor ID"
-  row.names(ad) <- smp$pseudoID
-  tot.donors <- length(ad$`Donor ID`)
-  outputFileName <- paste0(input$outputFolder,"/", input$run, "_", input$project, ".png")
-  mc <- mycolors_set()
-  bl <- breaksList()
-  drawHeatMap(data_frame = ld,
-            annotation_df = ad,
-            tree_cuts = tot.donors,
-            filename = outputFileName,
-            height = 20,
-            width = 25,
-            breaksList = bl,
-            custom_colors = mc,
-            showAnnotations = T,
-            treeheight = 50,
-            fontsize = 20)
-  return (outputFileName)
 })
 
 
 
 renderTable({
-  # anot.df()
-  formatted.SampleMap()
+  if (input$displaySampleInfo){
+    di <- donorsInt()
+    if( ! is.null(di)){
+      smp <- formatted.SampleMap()
+      smp <- smp[smp$effective_donorID %in% as.character(di), ]
+      smp
+    } else {
+      formatted.SampleMap()
+    }
+  }
+  
   })
 
 
@@ -226,15 +223,25 @@ renderPlot({
   }
   tot.donors <- length(unique(ad$`Donor ID`))
   # mycolors <- list(`Donor ID` = mycolors_set[sort(names(mycolors_set))])
+  # option to re-do colors for donors
   mc <- mycolors_set()
+  if (input$showNewColors){
+    mc <- NA
+  }
   bl <- breaksList()
   data_frame = ld
-  tree_cuts = tot.donors
+  tree_cuts = NA
+  if (input$showTreeCuts){
+    tree_cuts = tot.donors
+  }
+  
   height = 20
-  width = 20
+  width = 10
   # custom_colors = mc
+  annotation_legend = input$showLegend
+  # drop_levels = input$dropUnusedLevels
   showAnnotations = input$showAnnotations
-  treeheight = 50
+  treeheight = as.numeric(input$treeHeight)
   fontsize = 12
   pheatmap(as.matrix(data_frame),
            color = colorRampPalette(rev(brewer.pal(n = 10, 
@@ -242,8 +249,8 @@ renderPlot({
            breaks = bl,
            annotation_row = ad,
            annotation_col = ad,
-           cluster_rows = T,
-           cluster_cols = T,
+           cluster_rows = input$clusterOpt,
+           cluster_cols = input$clusterOpt,
            show_rownames = showAnnotations,
            show_colnames = showAnnotations,
            cutree_cols = tree_cuts,
@@ -252,13 +259,28 @@ renderPlot({
            treeheight_col = treeheight,
            height = height, width = width,
            annotation_colors = mc,
-           fontsize = fontsize)
-},width = 700,
-  height = 500)
+           fontsize = fontsize,
+           annotation_legend = annotation_legend)
+},width = exprToFunction(as.numeric(input$scalePlotWidth)),
+  height = exprToFunction(as.numeric(input$scalePlotHeight)))
 # render plot to only display the heatmap
 
 
 ```
+
+### Libraries for further investigation
+
+```{r,echo=F,warning=F}
+inputPanel(
+    sliderInput("threshold_up", label = "Similarity threshold",
+              min = 0.0, max = 1.0, value = 0.9, step = 0.01),
+    sliderInput("threshold_down", label = "Dissimilarity threshold",
+              min = 0.0, max = 1.0, value = 0.65, step = 0.01),
+    checkboxInput("showDissimilarIDs", label= "Show dissimilar libraries", value = FALSE, width = NULL)
+)
+```
+
+
 ```{r, echo=F, warning=F}
 # # display possible mismatches
 meltedLaneData <- reactive({
@@ -291,8 +313,16 @@ renderUI({
 
 renderTable({
   if (dim(mm1())[1] > 0){
-    unique(mm1())
-  }
+    if (input$showDissimilarIDs){
+      unique(mm1())
+    } else {
+        m <- unique(mm1())
+        # names(m) <- "Donors"
+        m <- data.frame(unique(c(m$`Donor ID X`, m$`Donor ID Y`)))
+        names(m) <- "Donor IDs with samples showing dissimilarity with samples from same donors"
+        m
+      }
+    }
 })
 
 
@@ -315,8 +345,16 @@ renderUI({
 # 
 renderTable({
   if (dim(mm2())[1] > 0){
-    unique(mm2())
-  }
+    if (input$showDissimilarIDs){
+      unique(mm2())
+    } else {
+        m <- unique(mm2())
+        # names(m) <- "Donors"
+        m <- data.frame(unique(c(m$`Donor ID X`, m$`Donor ID Y`)))
+        names(m) <- "Donor IDs with samples showing high similarity with other donors"
+        m
+      }
+    }
 })
 
 
